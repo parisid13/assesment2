@@ -1,0 +1,18 @@
+include: analysis_options.yaml
+linter:
+  rules:
+    - avoid_print
+    - prefer_const_constructors
+    - unnecessary_new
+    - lines_longer_than_80_chars
+    - prefer_final_fields
+    - always_declare_return_types
+    - always_specify_types
+    - annotate_overrides
+    - prefer_single_quotes
+    - avoid_types_on_closure_parameters
+    - unnecessary_this
+    - prefer_is_empty
+    - avoid_await_in_return
+    - prefer_adjacent_string_concatenation
+    - use_key_in_widget_constructors
