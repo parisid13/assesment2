@@ -84,13 +84,13 @@
 
 ---
 
-## Screenshot
+## Screenshots
 
-- login_page.jpg — halaman Login
-- home_page.jpg — halaman Activity/Home
-- add_item_page.jpg — tampilan saat menambah item atau dialog input
-- light_mode.jpg — tampilan aplikasi di Light Mode
-- dark_mode.jpg — tampilan aplikasi di Dark Mode
+![Login Page](image/login_page.jpg)
+![Home Page](image/home_page.jpg)
+![Add Item](image/add_item_page.jpg)
+![Light Mode](image/light_mode.jpg)
+![Dark Mode](image/dark_mode.jpg)
 
 ## Bagaimana Aplikasi Menyimpan Data
 
