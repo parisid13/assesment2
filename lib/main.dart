@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -123,24 +124,73 @@ class ActivityProvider extends ChangeNotifier {
 
   List<Map<String, dynamic>> get activities => _activities;
 
+  // --- CACHE KEYS ---
+  static const _kCachedActivities = 'cachedActivities';
+  static const _kCacheTimestamp = 'cacheTimestamp';
+
+  // load cached activities (return true if loaded from cache)
+  Future<bool> loadFromCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = prefs.getStringList(_kCachedActivities);
+    if (list == null || list.isEmpty) return false;
+
+    _activities
+      ..clear()
+      ..addAll(
+        list.map((s) {
+          final m = jsonDecode(s) as Map<String, dynamic>;
+          // ensure boolean typed
+          return {
+            'text': m['text']?.toString() ?? '',
+            'done': m['done'] == true || m['done'] == 'true',
+          };
+        }),
+      );
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> _saveToCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final list = _activities.map((m) => jsonEncode(m)).toList();
+    await prefs.setStringList(_kCachedActivities, list);
+    await prefs.setString(_kCacheTimestamp, DateTime.now().toIso8601String());
+  }
+
+  Future<String?> cacheTimestamp() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_kCacheTimestamp);
+  }
+
+  Future<void> clearCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_kCachedActivities);
+    await prefs.remove(_kCacheTimestamp);
+  }
+
+  // mutators - keep persisting changes to cache
   void addActivity(String text) {
     _activities.add({'text': text, 'done': false});
     notifyListeners();
+    _saveToCache();
   }
 
   void deleteActivity(int index) {
     _activities.removeAt(index);
     notifyListeners();
+    _saveToCache();
   }
 
   void toggleDone(int index) {
     _activities[index]['done'] = !_activities[index]['done'];
     notifyListeners();
+    _saveToCache();
   }
 
   void clearAll() {
     _activities.clear();
     notifyListeners();
+    _saveToCache();
   }
 }
 
@@ -507,11 +557,14 @@ class _ActivityPageState extends State<ActivityPage> {
   final TextEditingController _ctrl = TextEditingController();
   String? _displayName;
   String? _emailUser;
+  String? _lastRefreshLabel;
 
   @override
   void initState() {
     super.initState();
     _loadUser();
+    // schedule cache load after first frame
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadCache());
   }
 
   Future<void> _loadUser() async {
@@ -522,6 +575,39 @@ class _ActivityPageState extends State<ActivityPage> {
       _emailUser = prefs.getString('email');
     });
   }
+
+  Future<void> _loadCache() async {
+    final prov = Provider.of<ActivityProvider>(context, listen: false);
+    final loaded = await prov.loadFromCache();
+    final ts = await prov.cacheTimestamp();
+    if (ts != null) {
+      setState(() {
+        _lastRefreshLabel = _formatTs(ts);
+      });
+    }
+    if (loaded) {
+      // notify user data came from cache
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Data from Cache'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  String _formatTs(String iso) {
+    try {
+      final d = DateTime.parse(iso).toLocal();
+      return '${d.year}-${_two(d.month)}-${_two(d.day)} ${_two(d.hour)}:${_two(d.minute)}:${_two(d.second)}';
+    } catch (_) {
+      return iso;
+    }
+  }
+
+  String _two(int n) => n.toString().padLeft(2, '0');
 
   void _add(ActivityProvider prov) {
     final text = _ctrl.text.trim();
@@ -535,6 +621,40 @@ class _ActivityPageState extends State<ActivityPage> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  Future<void> _refreshFromCache() async {
+    final prov = Provider.of<ActivityProvider>(context, listen: false);
+    final loaded = await prov.loadFromCache();
+    final ts = await prov.cacheTimestamp();
+    setState(() {
+      _lastRefreshLabel = ts == null ? null : _formatTs(ts);
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(loaded ? 'Refreshed from cache' : 'No cached data'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _doClearCache() async {
+    final prov = Provider.of<ActivityProvider>(context, listen: false);
+    await prov.clearCache();
+    prov.clearAll();
+    setState(() {
+      _lastRefreshLabel = null;
+    });
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cache cleared'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -577,8 +697,39 @@ class _ActivityPageState extends State<ActivityPage> {
         actions: [
           IconButton(
             tooltip: 'Toggle theme',
-            icon: const Icon(Icons.brightness_6),
+            icon: Icon(themeProv.isDark ? Icons.dark_mode : Icons.light_mode),
             onPressed: () => themeProv.toggle(),
+          ),
+          IconButton(
+            tooltip: 'Refresh cache',
+            icon: const Icon(Icons.refresh),
+            onPressed: _refreshFromCache,
+          ),
+          IconButton(
+            tooltip: 'Clear cache',
+            icon: const Icon(Icons.delete_outline),
+            onPressed: () async {
+              final ok = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Clear cache?'),
+                  content: const Text(
+                    'This will clear saved cached activities.',
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Cancel'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Clear'),
+                    ),
+                  ],
+                ),
+              );
+              if (ok == true) _doClearCache();
+            },
           ),
           IconButton(
             tooltip: 'Logout',
@@ -600,10 +751,32 @@ class _ActivityPageState extends State<ActivityPage> {
           ),
         ),
       ),
+
+      // show last refresh/timestamp on top of body
       body: Padding(
         padding: const EdgeInsets.all(14.0),
         child: Column(
           children: [
+            if (_lastRefreshLabel != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.info_outline,
+                      size: 18,
+                      color: Colors.grey,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Last cache refresh: $_lastRefreshLabel',
+                      style: const TextStyle(fontSize: 13, color: Colors.grey),
+                    ),
+                    const Spacer(),
+                  ],
+                ),
+              ),
+
             Row(
               children: [
                 Expanded(
