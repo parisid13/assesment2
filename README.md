@@ -1,4 +1,4 @@
-# To-Do List Activity App
+<!-- # To-Do List Activity App
 
 > Repository ini berisi proyek Flutter untuk aplikasi To-Do List Activity App yang dikembangkan sebagai tugas/portofolio.
 
@@ -101,4 +101,4 @@
 6. Kirim link GitHub repository sebagai luaran.
    https://github.com/parisid13/assesment2#
 
-## cucuradabi
+## cucuradabi -->
